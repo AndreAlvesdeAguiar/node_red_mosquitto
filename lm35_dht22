@@ -1,3 +1,5 @@
+// COM POOLING ...
+
 #include "esp_adc_cal.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
