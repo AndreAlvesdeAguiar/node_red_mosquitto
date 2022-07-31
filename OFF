@@ -1,0 +1,269 @@
+/* Here ESP32 will keep 2 roles:
+  1/ read data from DHT11/DHT22 sensor
+  2/ control led on-off
+  So it willpublish temperature topic and scribe topic bulb on/off
+*/
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include "DHT.h"
+//------------------------------------------------------------------------
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_Sensor.h>
+//------------------------------------------------------------------------
+
+/* change it with your ssid-password */
+const char* ssid = "Okura&Aguiar";
+const char* password = "*welcome03";
+/* this is the IP of PC/raspberry where you installed MQTT Server
+  on Wins use "ipconfig"
+  on Linux use "ifconfig" to get its IP address */
+const char* mqtt_server = "192.168.15.23";
+
+/* define DHT pins */
+#define DHTPIN 5
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+float temperature = 0;
+float umidade = 0;
+
+
+/* create an instance of PubSubClient client */
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+/*LED GPIO pin*/
+const char led = 4;
+const char led2 = 13;
+const char led3 = 12;
+const int buttonPin = 19;
+
+int buttonPushCounter = 0;   // counter for the number of button presses
+int buttonState = 0;         // current state of the button
+int lastButtonState = 0;     // previous state of the button
+
+
+
+/* topics */
+#define TEMP_TOPIC    "smarthome/room1/temp"
+#define UMID_TOPIC    "smarthome/room1/umid"
+
+#define LED_TOPIC     "smarthome/room1/led" /* 1=on, 0=off */
+#define LED_TOPIC2    "smarthome/room1/led2" /* 1=on, 0=off */
+#define LED_TOPIC3    "smarthome/room1/led3" /* 1=on, 0=off */
+
+//------------------------------------------------------------------------
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+//------------------------------------------------------------------------
+
+long lastMsg = 0;
+char msg[20];
+
+void receivedCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received: ");
+  Serial.println(topic);
+
+  Serial.print("payload: ");
+  if (strstr(topic, LED_TOPIC))
+  {
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+    }
+    Serial.println();
+    /* we got '1' -> on */
+    if ((char)payload[0] == '2')
+    {
+      digitalWrite(led, HIGH);
+    }
+    if ((char)payload[0] == '3')
+    {
+      digitalWrite(led, LOW);
+    }
+  }
+  if (strstr(topic, LED_TOPIC2))
+  {
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+      if ((char)payload[0] == '1')
+      {
+        digitalWrite(led2, HIGH);
+      }
+      if ((char)payload[0] == '0')
+      {
+        digitalWrite(led2, LOW);
+      }
+    }
+  }
+  if (strstr(topic, LED_TOPIC3))
+  {
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+      if ((char)payload[0] == '4')
+      {
+        digitalWrite(led3, HIGH);
+      }
+      if ((char)payload[0] == '5')
+      {
+        digitalWrite(led3, LOW);
+      }
+    }
+  }
+
+}
+
+void mqttconnect() {
+  /* Loop until reconnected */
+  while (!client.connected()) {
+    Serial.print("MQTT connecting ...");
+    /* client ID */
+    String clientId = "ESP32Client";
+    /* connect now */
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      /* subscribe topic with default QoS 0*/
+      client.subscribe(LED_TOPIC);
+      client.subscribe(LED_TOPIC2);
+      client.subscribe(LED_TOPIC3);
+
+
+
+    } else {
+      Serial.print("failed, status code =");
+      Serial.print(client.state());
+      Serial.println("try again in 5 seconds");
+      /* Wait 5 seconds before retrying */
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  /* set led as output to control led on-off */
+  pinMode(led, OUTPUT);
+  pinMode(led2, OUTPUT);
+  pinMode(led3, OUTPUT);
+
+  // initialize the button pin as a input:
+  pinMode(buttonPin, OUTPUT);
+  // initialize the LED as an output:
+  
+  //------------------------------------------------------------------------
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
+  delay(2000);
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  //------------------------------------------------------------------------
+
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  /* configure the MQTT server with IPaddress and port */
+  client.setServer(mqtt_server, 1884);
+  /* this receivedCallback function will be invoked
+    when client received subscribed topic */
+  client.setCallback(receivedCallback);
+  /*start DHT sensor */
+  dht.begin();
+}
+void loop() {
+  buttonState = digitalRead(buttonPin);
+
+  if (buttonState != lastButtonState) {
+    // if the state has changed, increment the counter
+    if (buttonState == HIGH) {
+      client.publish("smarthome/room1/led", "2"); //
+      // if the current state is HIGH then the button
+      // went from off to on:
+    } else {
+      // if the current state is LOW then the button
+      // went from on to off:
+      client.publish("smarthome/room1/led", "3"); //
+    }
+    // Delay a little bit to avoid bouncing
+    delay(50);
+  }
+  // save the current state as the last state,
+  //for next time through the loop
+  lastButtonState = buttonState;
+//------------------------------------------------------------------------
+  // clear display
+  display.clearDisplay();
+
+  // display temperature
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("Temperature: ");
+  display.setTextSize(2);
+  display.setCursor(0, 10);
+  display.print(temperature);
+  display.print(" ");
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);
+  display.setTextSize(2);
+  display.print("C");
+
+  // display humidity
+  display.setTextSize(1);
+  display.setCursor(0, 35);
+  display.print("Humidity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(umidade);
+  display.print(" %");
+
+  display.display();
+  //------------------------------------------------------------------------
+
+
+
+  /* if client was disconnected then try to reconnect again */
+  if (!client.connected()) {
+    mqttconnect();
+  }
+  /* this function will listen for incomming
+    subscribed topic-process-invoke receivedCallback */
+  client.loop();
+  /* we measure temperature every 3 secs
+    we count until 3 secs reached to avoid blocking program if using delay()*/
+  long now = millis();
+  if (now - lastMsg > 3000) {
+    lastMsg = now;
+    /* read DHT11/DHT22 sensor and convert to string */
+    temperature = dht.readTemperature();
+    umidade = dht.readHumidity();
+
+    if (!isnan(temperature)) {
+      snprintf (msg, 20, "%lf", temperature);
+      /* publish the message */
+      client.publish(TEMP_TOPIC, msg);
+    }
+    if (!isnan(umidade)) {
+      snprintf (msg, 20, "%lf", umidade);
+      /* publish the message */
+      client.publish(UMID_TOPIC, msg);
+    }
+  }
+}
